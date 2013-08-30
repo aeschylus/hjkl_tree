@@ -3,16 +3,23 @@
   <head>
     <meta charset="UTF-8">
     <script type="text/javascript" src="bower_components/d3/d3.min.js"></script>
+    <script type="text/javascript" src="bower_components/mousetrap.min.js/index.js"></script>
+    <script type="text/javascript" src="bower_components/jquery/jquery.min.js"></script>
+    <script type="text/javascript" src="bower_components/underscore/underscore-min.js"></script>
     <title></title>
     <style type="text/css">
       .node circle {
         cursor: pointer;
         fill: #fff;
-        stroke: steelblue;
+        stroke: black;
         stroke-width: 1.5px;
       }
       .node text {
+        font-family: 'optima';
         font-size: 11px;
+      }
+      text.end{
+        margin-bottom:15px;
       }
       path.link {
         fill: none;
@@ -29,6 +36,15 @@
         bottom:0;
         left:0;
         right:0;
+      }
+      .node.selected circle {
+        stroke: deepPink; 
+        stroke-width: 9px;
+        transition: all 0.3s ease-out;
+      }
+      .node.selected text {
+        font-size:18px;
+        font-weight:bold;
       }
     </style>
   </head>
@@ -80,9 +96,7 @@
       .attr("width", w + m[1] + m[3])
       .attr("height", h + m[0] + m[2])
       .append("svg:g")
-      //.attr("pointer-events", "all")
       .attr("transform", "translate(" + m[3] + "," + m[0] + ")")
-      //.call(d3.behavior.zoom().scaleExtent([1,8]).on("zoom",zoom));
       .call(d3.behavior.zoom().x(x).y(y).scaleExtent([1, 8]).on("zoom", zoom));
 
       vis.append("rect")
@@ -103,26 +117,13 @@
       root.x0 = h / 2;
       root.y0 = 0;
 
-      function toggleAll(d) {
-        if (d.children) {
-          d.children.forEach(toggleAll);
-          toggle(d);
-        }
-      };
-      console.log(root)
-
-      // initialize the display to show a few nodes.
-      root.children.forEach(toggleAll);
-      //toggle(root.children[1]);
-      //toggle(root.children[9]);
-
       update(root);
 
       function update(source) {
         var duration = d3.event && d3.event.altKey ? 5000 : 500;
 
         // Compute the new tree layout.
-        var nodes = tree.nodes(root).reverse();
+        nodes = tree.nodes(root).reverse();
 
         // Normalize for fixed-depth.
         nodes.forEach(function (d) {
@@ -137,27 +138,15 @@
 
         // Enter any new nodes at the parent's previous position.
         var nodeEnter = node.enter().append("svg:g")
+        .attr('id', function (d) { return "node"+d.id; })
         .attr("class", "node")
         .attr("transform", function (d) {
           return "translate(" + source.y0 + "," + source.x0 + ")";
-        })
-        .on("click", function (d) {
-          toggle(d);
-          update(d);
-          if (d['info']) {
-            playvid(d['info']);
-          }
         });
-
         nodeEnter.append("svg:circle")
-        .attr("r", 1e-6)
-        .style("fill", function (d) {
-          return d._children ? "lightsteelblue" : "#fff";
-        });
+        .attr("r", 1e-6);
 
         nodeEnter.append("svg:text")
-        //.attr("y", function(d) { return d.children || d._children ? -10 : 10; })
-        //.attr("dx", ".35em")
         .attr("x", function (d) {
           return d.children || d._children ? -10 : 10;
         })
@@ -165,10 +154,12 @@
         .attr("text-anchor", function (d) {
           return d.children || d._children ? "end" : "start";
         })
+        .attr("class", function (d) {
+          return d.children || d._children ? "end" : "start";
+        })
         .text(function (d) {
           return d.name;
-        })
-        .style("fill-opacity", 1e-6);
+        });
 
         // Transition nodes to their new position.
         var nodeUpdate = node.transition()
@@ -178,10 +169,7 @@
         });
 
         nodeUpdate.select("circle")
-        .attr("r", 4.5)
-        .style("fill", function (d) {
-          return d._children ? "lightsteelblue" : "#fff";
-        });
+        .attr("r", 4.5);
 
         nodeUpdate.select("text")
         .style("fill-opacity", 1);
@@ -248,17 +236,6 @@
           d.y0 = d.y;
         });
       }
-      // Toggle children
-      function toggle(d) {
-        if (d.children) {
-          d._children = d.children;
-          d.children = null;
-        } else {
-          d.children = d._children;
-          d._children = null;
-        }
-      }
-
       // zoom in / out
       function zoom(d) {
         //vis.attr("transform", "translate(" + d3.event.translate + ")scale(" + d3.event.scale + ")");
@@ -269,11 +246,6 @@
         var link = vis.selectAll("path.link");
         link.attr("d", translate);
 
-        // Enter any new links at hte parent's previous position
-        //link.attr("d", function(d) {
-        //      var o = {x: d.x0, y: d.y0};
-        //      return diagonal({source: o, target: o});
-        //    });
       }
 
       function transform(d) {
@@ -287,10 +259,77 @@
         var targetY = (sourceX + targetX) / 2;
         var linkTargetY = y(d.target.x0);
         var result = "M" + sourceX + "," + sourceY + " C" + targetX + "," + sourceY + " " + targetY + "," + y(d.target.x0) + " " + targetX + "," + linkTargetY + "";
-        //console.log(result);
 
         return result;
       }  
+    </script>
+    <script type="text/javascript">
+      $(function() {
+        selectedNode = nodes[0];
+        
+        Mousetrap.bind(["h", "left"], function(){ move("up"); });
+        Mousetrap.bind(["j", "down"], function(){ move("nextSib"); });
+        Mousetrap.bind(["k", "up"], function(){ move("prevSib"); });
+        Mousetrap.bind(["l", "right"], function(){ move("down"); });
+
+        var move = function(direction) { 
+
+          var target;
+
+
+          var currentChildIndex;
+          if (!selectedNode.parent) {
+            currentChildIndex = 0; 
+          } else {
+            _.each(selectedNode.parent.children, function(child, index) {
+              if (selectedNode.id === child.id) currentChildIndex = index;
+            });
+          }
+
+          switch (direction) {
+            case "up":
+              if (!selectedNode.parent) return; 
+            select(selectedNode.parent);
+            break;
+            case "prevSib":
+              if (selectedNode.parent.children[currentChildIndex-1]) {
+              select(selectedNode.parent.children[currentChildIndex-1]);
+              // } else if (selectedNode.children) {
+              //   move("down");
+            } else {
+              select(selectedNode.parent);
+            }
+            break;
+            case "nextSib":
+              if (selectedNode.parent.children[currentChildIndex+1]) {
+              select(selectedNode.parent.children[currentChildIndex+1]);
+              // } else if (selectedNode.children) {
+              //   move("down");
+            } else {
+              select(selectedNode.parent);
+              move("nextSib");
+            }
+            break;
+            case "down":
+              select(selectedNode.children[0]);
+            break;
+          }
+
+          console.log(direction);
+        };
+
+        var select = function(event) {
+          d3.selectAll('.node').classed("selected", false);
+          var selection = d3.select('#node'+event.id);
+          selectedNode = event;
+          selection.classed("selected", true);
+          console.log(event);
+        };
+
+        // $('body').on("click", function(event){console.log("clicked"+event.target);});
+        d3.selectAll('.node').on("click", select);
+        $('.node').click();
+      });
     </script>
   </body>
 </html>
